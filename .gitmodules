@@ -1,0 +1,6 @@
+[submodule "extern/pico-scale"]
+	path = extern/pico-scale
+	url = https://github.com/endail/pico-scale
+[submodule "extern/hx711-pico-c"]
+	path = extern/hx711-pico-c
+	url = https://github.com/endail/hx711-pico-c
