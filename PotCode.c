@@ -52,7 +52,13 @@ void senseitr()
 {
  //gpio_put(15,1);   // turn off motor
  pwm_set_gpio_level(gpiopin, 1);
+ gpio_put(20,0); // turn off amber led
 }
+
+// weight calc
+
+double maxweight;
+
 
 // motor pwm
 
@@ -88,9 +94,12 @@ adc_gpio_init(26);
    
  adc_select_input(0); // adc on pin 26
 
-  gpio_put(25,1);
-    gpio_put(15,0);
+    gpio_put(25,1);
+    
+    gpio_put(15,0); // starts motor
     //gpio_put(14,1);  IGNORE PWM DISABLE
+
+    pwm_set_gpio_level(gpiopin, 1); // stops motor
 
 // level sense
  gpio_init(18);
@@ -128,10 +137,17 @@ scale_init(
 scale_options_t opt = SCALE_DEFAULT_OPTIONS;
 scale_zero(&sc, &opt);
 
+gpio_init(21); //blue led on
+gpio_set_dir(21,GPIO_OUT);
+gpio_put(21,1);
+
+gpio_init(20); //init amber led
+gpio_set_dir(20,GPIO_OUT);
+
 
 while(1)
 {
-waterstatus =  gpio_get(18);
+//waterstatus =  gpio_get(18);
 
    
     const float conversion_factor = 3.3f / (1 << 12);
@@ -153,13 +169,27 @@ if(scale_weight(&sc, &mass, &opt)) {
     // get the weight as a numeric value according to the mass_unit_t
     double val;
     mass_get_value(&mass, &val);
- 
+    
     // convert the mass to a string
     char buff[MASS_TO_STRING_BUFF_SIZE];
     mass_to_string(&mass, buff);
     printf("%s\n", buff);
  
-    // or do other operations (see: mass.h file)
+    // weight thingy
+    if(maxweight < val)
+    {
+        maxweight = val;
+        printf("%d\n", maxweight);
+    }
+    if(val * 1.3 < maxweight && gpio_get(18) == false)
+    {
+        pwm_set_gpio_level(gpiopin, 0); // starts motor
+        gpio_put(20,1);
+    }
+    else
+    {
+        gpio_put(20,0);
+    }
  
 }
 
