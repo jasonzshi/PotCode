@@ -189,6 +189,7 @@ if(scale_weight(&sc, &mass, &opt)) {
     else
     {
         gpio_put(20,0);
+        //fortnite
     }
  
 }
