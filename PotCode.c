@@ -51,14 +51,14 @@ void on_pwm_wrap() {
 void senseitr()
 {
  //gpio_put(15,1);   // turn off motor
- pwm_set_gpio_level(gpiopin, 1);
+ gpio_put(14,0);
  gpio_put(20,0); // turn off amber led
 }
 
 // weight calc
 
-double maxweight;
 
+mass_t maxweightstruct; // struct for maxweight
 
 // motor pwm
 
@@ -69,9 +69,12 @@ int main()
  gpio_init(25); //onboard led
  gpio_set_dir(25,GPIO_OUT);
  gpio_init(15); // pwm pin 1enable
- //gpio_init(14);  pwm pin 2
- gpio_set_function(14, GPIO_FUNC_PWM);
+ gpio_init(14);  
+ //gpio_set_function(14, GPIO_FUNC_PWM);
+ gpio_set_dir(14,GPIO_OUT); // remove later
  gpio_set_dir(15,GPIO_OUT);
+
+ /*
  uint slicenum = pwm_gpio_to_slice_num(14);
  pwm_clear_irq(slicenum); //clear pin interrupts
  
@@ -86,8 +89,8 @@ pwm_config config = pwm_get_default_config();
     // Set divider, reduces counter clock to sysclock/this value
     pwm_config_set_clkdiv(&config, 32.f);
     // Load the configuration into our PWM slice, and set it running.
-    pwm_init(slicenum, &config, true);
-
+    pwm_init(slicenum, &config, false); // starts off
+*/
 adc_init();// enable adc
 
 adc_gpio_init(26);
@@ -99,7 +102,7 @@ adc_gpio_init(26);
     gpio_put(15,0); // starts motor
     //gpio_put(14,1);  IGNORE PWM DISABLE
 
-    pwm_set_gpio_level(gpiopin, 1); // stops motor
+    //pwm_set_gpio_level(gpiopin, 1); // stops motor???
 
 // level sense
  gpio_init(18);
@@ -137,6 +140,10 @@ scale_init(
 scale_options_t opt = SCALE_DEFAULT_OPTIONS;
 scale_zero(&sc, &opt);
 
+//max weight
+mass_init(&maxweightstruct, mass_g,0); // init as grams & set as 0 g
+mass_t mass;
+uint16_t result; // moved out of loop
 gpio_init(21); //blue led on
 gpio_set_dir(21,GPIO_OUT);
 gpio_put(21,1);
@@ -151,12 +158,12 @@ while(1)
 
    
     const float conversion_factor = 3.3f / (1 << 12);
-        uint16_t result = adc_read();
+        result = adc_read();
         
         printf("Raw value: 0x%03x, voltage: %f V\n", result, result * conversion_factor);
+        
     sleep_ms(500);
-    mass_t mass;
-
+    
  // scale weight test remove later
 if(scale_weight(&sc, &mass, &opt)) {
  
@@ -172,24 +179,29 @@ if(scale_weight(&sc, &mass, &opt)) {
     
     // convert the mass to a string
     char buff[MASS_TO_STRING_BUFF_SIZE];
+    mass.ug = mass.ug * -1; // invert
     mass_to_string(&mass, buff);
     printf("%s\n", buff);
- 
+    mass.ug = mass.ug /1000000; // wonky divider to make values match
+    
     // weight thingy
-    if(maxweight < val)
+    if(mass.ug > maxweightstruct.ug) // current mass greater than max weight
     {
-        maxweight = val;
-        printf("%d\n", maxweight);
+       maxweightstruct.ug = mass.ug;
+        printf("new maxweight : %f\n", maxweightstruct.ug);
     }
-    if(val * 1.3 < maxweight && gpio_get(18) == false)
+    if(mass.ug * 1.3 < maxweightstruct.ug && gpio_get(18) == false && mass.ug > 10) // greater than 150 grams
     {
-        pwm_set_gpio_level(gpiopin, 0); // starts motor
+        
+        
+        gpio_put(14,1); // turns on motor
         gpio_put(20,1);
     }
     else
     {
         gpio_put(20,0);
-        //fortnite
+        
+        gpio_put(14,0);// drive pwm pin low
     }
  
 }
