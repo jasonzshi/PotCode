@@ -12,6 +12,12 @@
 #include "extern/hx711-pico-c/include/hx711.h"
 #include "extern/hx711-pico-c/include/hx711_noblock.pio.h"
 
+//ml libs
+
+#include "edge-impulse-sdk/classifier/ei_run_classifier.h"
+#include "model-parameters/model_metadata.h"
+
+
 //#include "extern/pico-scale/extern/hx711-pico-c/include/hx711_noblock.pio.h"
 
 static int gpiopin = 14; // made global
@@ -160,9 +166,9 @@ while(1)
     const float conversion_factor = 3.3f / (1 << 12);
         result = adc_read();
         
-        printf("Raw value: 0x%03x, voltage: %f V\n", result, result * conversion_factor);
+        //printf("Raw value: 0x%03x, voltage: %f V\n", result, result * conversion_factor);
         
-    sleep_ms(500);
+    
     
  // scale weight test remove later
 if(scale_weight(&sc, &mass, &opt)) {
@@ -181,14 +187,16 @@ if(scale_weight(&sc, &mass, &opt)) {
     char buff[MASS_TO_STRING_BUFF_SIZE];
     mass.ug = mass.ug * -1; // invert
     mass_to_string(&mass, buff);
-    printf("%s\n", buff);
-    mass.ug = mass.ug /1000000; // wonky divider to make values match
+    //printf("%s\n", buff);
     
+
+    mass.ug = mass.ug /1000000; // wonky divider to make values match
+    printf("%f\n",mass.ug);// for datalogging delete later
     // weight thingy
     if(mass.ug > maxweightstruct.ug) // current mass greater than max weight
     {
        maxweightstruct.ug = mass.ug;
-        printf("new maxweight : %f\n", maxweightstruct.ug);
+        //printf("new maxweight : %f\n", maxweightstruct.ug);
     }
     if(mass.ug * 1.3 < maxweightstruct.ug && gpio_get(18) == false && mass.ug > 10) // greater than 150 grams
     {
@@ -206,7 +214,7 @@ if(scale_weight(&sc, &mass, &opt)) {
  
 }
 
-
+sleep_ms(500); // 5 mins instead of 500 for datalogging
 }
 
 
