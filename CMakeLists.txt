@@ -25,7 +25,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(PotCode PotCode.c )
+add_executable(PotCode PotCode.cpp )
 
 pico_set_program_name(PotCode "PotCode")
 pico_set_program_version(PotCode "0.1")
@@ -86,7 +86,6 @@ target_link_libraries(PotCode
         hardware_pio
         pico-scale
         
-
       
         
         )

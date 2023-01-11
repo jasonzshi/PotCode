@@ -54,12 +54,14 @@ void on_pwm_wrap() {
 }
 
 // sensor interrupt
-void senseitr()
+
+void senseitr(uint , uint32_t )
 {
  //gpio_put(15,1);   // turn off motor
  gpio_put(14,0);
  gpio_put(20,0); // turn off amber led
 }
+
 
 // weight calc
 
