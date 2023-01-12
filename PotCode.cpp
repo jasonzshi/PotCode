@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+
 #include "pico/time.h"
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
@@ -15,8 +16,10 @@
 //ml libs
 
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
-#include "model-parameters/model_metadata.h"
-
+//#include "model-parameters/model_metadata.h"
+//#include "edge-impulse-sdk/dsp/numpy_types.h" // dunno if needed
+#include "edge-impulse-sdk/porting/ei_classifier_porting.h"
+#include "edge-impulse-sdk/classifier/ei_classifier_types.h"
 
 //#include "extern/pico-scale/extern/hx711-pico-c/include/hx711_noblock.pio.h"
 
@@ -55,7 +58,7 @@ void on_pwm_wrap() {
 
 // sensor interrupt
 
-void senseitr(uint , uint32_t )
+void senseitr(uint , uint32_t) // change to cpp vers
 {
  //gpio_put(15,1);   // turn off motor
  gpio_put(14,0);
@@ -68,10 +71,30 @@ void senseitr(uint , uint32_t )
 
 mass_t maxweightstruct; // struct for maxweight
 
-// motor pwm
+
+// ML MODEL
+int datain;
+static float features[]={
+-0.7685, -0.6435, -0.6273
+};
+
+int raw_feature_get_data(size_t offset, size_t length, float *out_ptr)
+{   
+    /*
+    for (int i =0; i<6; i++)
+    {
+        features[i]=datain;
+    }
+    */
+    
+  memcpy(out_ptr, features + offset, length * sizeof(float));
+  return 0;
+}
+
 
 int main()
 {
+ 
  bool waterstatus = false;
  stdio_init_all();
  gpio_init(25); //onboard led
@@ -167,7 +190,7 @@ while(1)
    
     const float conversion_factor = 3.3f / (1 << 12);
         result = adc_read();
-        
+        printf("%f\n",result);// remove later for datalogging
         //printf("Raw value: 0x%03x, voltage: %f V\n", result, result * conversion_factor);
         
     
@@ -193,7 +216,8 @@ if(scale_weight(&sc, &mass, &opt)) {
     
 
     mass.ug = mass.ug /1000000; // wonky divider to make values match
-    printf("%f\n",mass.ug);// for datalogging delete later
+    datain = mass.ug;
+    //printf("%f\n",mass.ug);// for datalogging delete later
     // weight thingy
     if(mass.ug > maxweightstruct.ug) // current mass greater than max weight
     {
@@ -217,6 +241,63 @@ if(scale_weight(&sc, &mass, &opt)) {
 }
 
 sleep_ms(500); // 5 mins instead of 500 for datalogging
+/*
+//ml
+ ei_impulse_result_t impulseresult;
+  ei_printf("Edge Impulse standalone inferencing (Raspberry Pi Pico)\n");
+
+    if (sizeof(features) / sizeof(float) != EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE)
+    {
+      ei_printf("The size of your 'features' array is not correct. Expected %d items, but had %u\n",
+                EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE, sizeof(features) / sizeof(float));
+      return 1;
+    }
+      // the features are stored into flash, and we don't want to load everything into RAM
+      signal_t features_signal;
+      features_signal.total_length = sizeof(features) / sizeof(features[0]);
+      features_signal.get_data = &raw_feature_get_data;
+
+      // invoke the impulse
+      EI_IMPULSE_ERROR res = run_classifier(&features_signal, &impulseresult, false);
+
+      ei_printf("run_classifier returned: %d\n", res);
+
+      if (res != 0)
+        return 1;
+
+      ei_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
+                impulseresult.timing.dsp, impulseresult.timing.classification, impulseresult.timing.anomaly);
+
+      // print the predictions
+      ei_printf("[");
+      for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++)
+      {
+        ei_printf("%.5f", impulseresult.classification[ix].value);
+#if EI_CLASSIFIER_HAS_ANOMALY == 1
+        ei_printf(", ");
+#else
+        if (ix != EI_CLASSIFIER_LABEL_COUNT - 1)
+        {
+          ei_printf(", ");
+        }
+#endif
+      }
+#if EI_CLASSIFIER_HAS_ANOMALY == 1
+      printf("%.3f", impulseresult.anomaly);
+#endif
+      printf("]\n");
+       // human-readable predictions
+        for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
+            ei_printf("    %s: %.5f\n", impulseresult.classification[ix].label, impulseresult.classification[ix].value);
+        }
+    #if EI_CLASSIFIER_HAS_ANOMALY == 1
+        ei_printf("    anomaly score: %.3f\n", impulseresult.anomaly);
+    #endif
+       
+        sleep_ms(500);
+ //
+
+ */
 }
 
 
