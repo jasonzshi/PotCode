@@ -8,6 +8,8 @@
 #include "hardware/pwm.h"
 #include "hardware/adc.h"
 #include "hardware/pio.h"
+#include "hardware/rtc.h"
+#include "pico/util/datetime.h"
 //#include "pico/mutex.h"
 #include "extern/pico-scale/include/scale.h"
 #include "extern/hx711-pico-c/include/hx711.h"
@@ -24,9 +26,13 @@
 //#include "extern/pico-scale/extern/hx711-pico-c/include/hx711_noblock.pio.h"
 
 static int gpiopin = 14; // made global
+bool pumptomax = false; // boolean flag to pump to max
+
+
+
+
 
 //scale init
-
 hx711_t hx;
 scale_t sc; // scale lib
 
@@ -57,7 +63,6 @@ void on_pwm_wrap() {
 }
 
 // sensor interrupt
-
 void senseitr(uint , uint32_t) // change to cpp vers
 {
  //gpio_put(15,1);   // turn off motor
@@ -67,8 +72,6 @@ void senseitr(uint , uint32_t) // change to cpp vers
 
 
 // weight calc
-
-
 mass_t maxweightstruct; // struct for maxweight
 
 
@@ -89,6 +92,44 @@ int raw_feature_get_data(size_t offset, size_t length, float *out_ptr)
     
   memcpy(out_ptr, features + offset, length * sizeof(float));
   return 0;
+}
+
+
+//setup loop 
+void initweightsetup(){ // 30 second setup loop before using 
+gpio_put(20,1); // turn on amber led
+mass_t mass;
+double val;
+    datetime_t t = {
+            .year  = 2023,
+            .month = 0,
+            .day   = 0,
+            .dotw  = 0, 
+            .hour  = 00,
+            .min   = 00,
+            .sec   = 00
+    };
+
+    rtc_init();
+    rtc_set_datetime(&t);
+    rtc_get_datetime(&t);
+
+    mass_get_value(&mass,&val);//
+    mass.ug= mass.ug * -1;
+    mass.ug = mass.ug /1000000;
+    while(mass.ug < 10 || t.sec < 30 ){ // while still under min threshold and less than 30 seconds
+        rtc_get_datetime(&t);
+        //get weight updates
+        mass.ug= mass.ug * -1;
+        mass.ug = mass.ug /1000000;
+        if (maxweightstruct.ug < mass.ug) // sets new weight if current weight is higher than maxweight
+        { 
+            mass.ug = maxweightstruct.ug;
+        }
+        //blink
+    }
+    //lock maxweight
+    gpio_put(20,0); // turn off amber led
 }
 
 
@@ -130,7 +171,7 @@ adc_gpio_init(26);
 
     gpio_put(25,1);
     
-    gpio_put(15,0); // starts motor
+    gpio_put(14,0); // starts motor
     //gpio_put(14,1);  IGNORE PWM DISABLE
 
     //pwm_set_gpio_level(gpiopin, 1); // stops motor???
@@ -183,6 +224,8 @@ gpio_init(20); //init amber led
 gpio_set_dir(20,GPIO_OUT);
 
 
+initweightsetup(); // call function for initial setup
+
 while(1)
 {
 //waterstatus =  gpio_get(18);
@@ -190,7 +233,7 @@ while(1)
    
     const float conversion_factor = 3.3f / (1 << 12);
         result = adc_read();
-        printf("%f\n",result);// remove later for datalogging
+        printf(" %f \n", result * conversion_factor);// remove later for datalogging
         //printf("Raw value: 0x%03x, voltage: %f V\n", result, result * conversion_factor);
         
     
@@ -218,24 +261,43 @@ if(scale_weight(&sc, &mass, &opt)) {
     mass.ug = mass.ug /1000000; // wonky divider to make values match
     datain = mass.ug;
     //printf("%f\n",mass.ug);// for datalogging delete later
+
+
+    
     // weight thingy
-    if(mass.ug > maxweightstruct.ug) // current mass greater than max weight
+    if(mass.ug > maxweightstruct.ug && mass.ug - maxweightstruct.ug <= maxweightstruct.ug * .05 ) // current mass greater than max weight && add reasonable increase threshold so that anomalies can be ignored (5%)
     {
        maxweightstruct.ug = mass.ug;
         //printf("new maxweight : %f\n", maxweightstruct.ug);
+      
     }
-    if(mass.ug * 1.3 < maxweightstruct.ug && gpio_get(18) == false && mass.ug > 10) // greater than 150 grams
+    else if(mass.ug * 1.3 < maxweightstruct.ug && gpio_get(18) == false && mass.ug > 10 /* || pumptomaxweightflag true && wait if levelsense tripped timer is complete is true*/ ) // greater than 150 grams
     {
-        
-        
+      bool pumptomax = true;
+        while (pumptomax == true)
+        {
         gpio_put(14,1); // turns on motor
         gpio_put(20,1);
+
+        mass_get_value(&mass, &val);
+        mass.ug = mass.ug * -1;
+        mass.ug = mass.ug /1000000; 
+        if ( mass.ug >= maxweightstruct.ug /*add range of acceptable values*/)
+        {
+            pumptomax = false;
+            gpio_put(14,0); // turn off pump
+            break; // break out of while loop
+        }
+        }
+       //  sleep_ms(100);
     }
-    else
+    else if(gpio_get(14)!=0) // sets pin low only if pin is high
     {
+        
         gpio_put(20,0);
         
         gpio_put(14,0);// drive pwm pin low
+        // sleep_ms(100);
     }
  
 }
@@ -298,7 +360,11 @@ sleep_ms(500); // 5 mins instead of 500 for datalogging
  //
 
  */
+
+
 }
 
 
 }
+
+

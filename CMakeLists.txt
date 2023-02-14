@@ -132,6 +132,7 @@ target_link_libraries(PotCode
         hardware_watchdog
         hardware_clocks
         hardware_pio
+        hardware_rtc
         pico-scale
         
       
