@@ -17,11 +17,16 @@
 
 //ml libs
 
-#include "edge-impulse-sdk/classifier/ei_run_classifier.h"
+
 //#include "model-parameters/model_metadata.h"
 //#include "edge-impulse-sdk/dsp/numpy_types.h" // dunno if needed
+
+
+/* uncomment later (commented out for debugging speed)
+#include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 #include "edge-impulse-sdk/porting/ei_classifier_porting.h"
 #include "edge-impulse-sdk/classifier/ei_classifier_types.h"
+*/
 
 //#include "extern/pico-scale/extern/hx711-pico-c/include/hx711_noblock.pio.h"
 
@@ -102,14 +107,16 @@ int raw_feature_get_data(size_t offset, size_t length, float *out_ptr)
 
 
 //setup loop 
-void initweightsetup(){ // 30 second setup loop before using 
+
+void initweightsetup(mass_t mass, scale_options_t opt){ // 30 second setup loop before using 
+
 gpio_put(20,1); // turn on amber led
-mass_t mass;
+
 double val;
     datetime_t t = {
             .year  = 2023,
-            .month = 0,
-            .day   = 0,
+            .month = 1,
+            .day   = 1,
             .dotw  = 0, 
             .hour  = 00,
             .min   = 00,
@@ -118,24 +125,52 @@ double val;
 
     rtc_init();
     rtc_set_datetime(&t);
-    rtc_get_datetime(&t);
+   // rtc_get_datetime(&t);
+   char datetime_buf[256]; // hold rtc data
+   char *datetime_str = &datetime_buf[0];
 
-    mass_get_value(&mass,&val);//
-    mass.ug= mass.ug * -1;
-    mass.ug = mass.ug /1000000;
-    while(mass.ug < 10 || t.sec < 30 ){ // while still under min threshold and less than 30 seconds
+    printf("clock initialized\n");
+
+        if(scale_weight(&sc, &mass, &opt)) { // gets weight
+        double val;
+        mass_get_value(&mass, &val);
+        char buff[MASS_TO_STRING_BUFF_SIZE];
+        mass.ug = mass.ug * -1; // invert values
+        mass_to_string(&mass, buff);
+        //printf("%s\n", buff);
+        mass.ug = mass.ug /1000000; // wonky divider to make values match
+        datain = mass.ug;
+        }
+    while(mass.ug < 10 && t.sec < 30 ){ // while still under min threshold and less than 30 seconds
+
+        if(scale_weight(&sc, &mass, &opt)) { // gets weight again
+        double val;
+        mass_get_value(&mass, &val);
+        char buff[MASS_TO_STRING_BUFF_SIZE];
+        mass.ug = mass.ug * -1; // invert values
+        mass_to_string(&mass, buff);
+        //printf("%s\n", buff);
+        mass.ug = mass.ug /1000000; // wonky divider to make values match
+        datain = mass.ug;
+        }
+        printf("its loopin time\n");
+        datetime_to_str(datetime_str, sizeof(datetime_buf), &t);
+        printf("\r%s      ", datetime_str);
+        printf("mass : %f\n",mass.ug);
         rtc_get_datetime(&t);
+        sleep_ms(100);
         //get weight updates
-        mass.ug= mass.ug * -1;
-        mass.ug = mass.ug /1000000;
+        
         if (maxweightstruct.ug < mass.ug) // sets new weight if current weight is higher than maxweight
         { 
-            mass.ug = maxweightstruct.ug;
+            maxweightstruct.ug = mass.ug;
         }
         //blink
     }
     //lock maxweight
     gpio_put(20,0); // turn off amber led
+    printf("final maxweight: %f\n", maxweightstruct.ug);
+    //const mass_t maxweightstruct = maxweightstruct; // see if this is ok
 }
 
 
@@ -221,7 +256,7 @@ scale_zero(&sc, &opt);
 //max weight
 mass_init(&maxweightstruct, mass_g,0); // init as grams & set as 0 g
 mass_t mass;
-uint16_t result; // moved out of loop
+uint16_t result; // moved out of loop, delete later??
 gpio_init(21); //blue led on
 gpio_set_dir(21,GPIO_OUT);
 gpio_put(21,1);
@@ -230,7 +265,7 @@ gpio_init(20); //init amber led
 gpio_set_dir(20,GPIO_OUT);
 
 
-initweightsetup(); // call function for initial setup
+initweightsetup(mass,opt); // call function for initial setup
 
 while(1)
 {
@@ -239,7 +274,7 @@ while(1)
    
     const float conversion_factor = 3.3f / (1 << 12);
         result = adc_read();
-        printf(" %f \n", result * conversion_factor);// remove later for datalogging
+        printf(" %f \n", result * conversion_factor);// remove later for datalogging (I think this is for the motor current feedback)
         //printf("Raw value: 0x%03x, voltage: %f V\n", result, result * conversion_factor);
         
     
@@ -259,22 +294,23 @@ if(scale_weight(&sc, &mass, &opt)) {
     
     // convert the mass to a string
     char buff[MASS_TO_STRING_BUFF_SIZE];
-    mass.ug = mass.ug * -1; // invert
+    mass.ug = mass.ug * -1; // invert values
     mass_to_string(&mass, buff);
     //printf("%s\n", buff);
     
-
+    
     mass.ug = mass.ug /1000000; // wonky divider to make values match
     datain = mass.ug;
-    //printf("%f\n",mass.ug);// for datalogging delete later
+    printf("mass: %f\n",mass.ug);// for datalogging delete later
 
 
     
     // weight thingy
     if(mass.ug > maxweightstruct.ug && mass.ug - maxweightstruct.ug <= maxweightstruct.ug * .05 ) // current mass greater than max weight && add reasonable increase threshold so that anomalies can be ignored (5%)
     {
+        
        maxweightstruct.ug = mass.ug;
-        //printf("new maxweight : %f\n", maxweightstruct.ug);
+       printf("new maxweight : %f\n", maxweightstruct.ug);
       
     }
     else if(mass.ug * 1.3 < maxweightstruct.ug && gpio_get(18) == false && mass.ug > 10 /* || pumptomaxweightflag true && wait if levelsense tripped timer is complete is true*/ ) // greater than 150 grams
@@ -285,9 +321,16 @@ if(scale_weight(&sc, &mass, &opt)) {
         gpio_put(14,1); // turns on motor
         gpio_put(20,1);
 
+       if(scale_weight(&sc, &mass, &opt)) { // gets weight
+        double val;
         mass_get_value(&mass, &val);
-        mass.ug = mass.ug * -1;
-        mass.ug = mass.ug /1000000; 
+        char buff[MASS_TO_STRING_BUFF_SIZE];
+        mass.ug = mass.ug * -1; // invert values
+        mass_to_string(&mass, buff);
+        mass.ug = mass.ug /1000000; // wonky divider to make values match
+        datain = mass.ug;
+        }
+        printf("mass : %f\n",mass.ug); // test delete later
         if ( mass.ug >= maxweightstruct.ug /*add range of acceptable values*/)
         {
             pumptomax = false;

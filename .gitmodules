@@ -4,3 +4,6 @@
 [submodule "extern/hx711-pico-c"]
 	path = extern/hx711-pico-c
 	url = https://github.com/endail/hx711-pico-c
+[submodule "FreeRTOS/FreeRTOS-Kernel"]
+	path = FreeRTOS/FreeRTOS-Kernel
+	url = https://github.com/FreeRTOS/FreeRTOS-Kernel
