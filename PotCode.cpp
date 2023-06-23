@@ -38,10 +38,10 @@
 
 static int gpiopin = 14; // made global
 bool pumptomax = false; // boolean flag to pump to max
-
-
-
-
+mass_t waterused; // mass_t to hold water used in grams
+mass_t totalwateravailable; // init function below in setup to define weight of water
+const double AvailableWaterinGrams = 700; // 700 grams available 
+bool nowater =false; // bool for if water reservoir is empty
 
 //scale init
 hx711_t hx;
@@ -82,6 +82,7 @@ void senseitr(uint , uint32_t) // change to cpp vers
 }
 
 
+
 // weight calc
 mass_t maxweightstruct; // struct for maxweight
 
@@ -104,6 +105,15 @@ int raw_feature_get_data(size_t offset, size_t length, float *out_ptr)
   memcpy(out_ptr, features + offset, length * sizeof(float));
   return 0;
 }
+
+void BLedhandler(void* parameter); //function prototype CURRENTLY UNUSED
+
+typedef struct weightstructs // structs to hold both mass values to pass into rtos function CURRENTLY UNUSED
+{
+    mass_t currmass;
+    mass_t maxmass; 
+}twoweights; 
+
 
 
 //setup loop 
@@ -163,7 +173,21 @@ double val;
         
         if (maxweightstruct.ug < mass.ug) // sets new weight if current weight is higher than maxweight
         { 
-            maxweightstruct.ug = mass.ug;
+            sleep_ms(420); // bounce delay for settling IMPORTANT !!!!
+                if(scale_weight(&sc, &mass, &opt)) { // gets weight
+                double val;
+                mass_get_value(&mass, &val);
+                char buff[MASS_TO_STRING_BUFF_SIZE];
+                mass.ug = mass.ug * -1; // invert values
+                mass_to_string(&mass, buff);
+                //printf("%s\n", buff);
+                mass.ug = mass.ug /1000000; // wonky divider to make values match
+                datain = mass.ug;
+                }
+            if (maxweightstruct.ug < mass.ug) // just in case user lifts off object in those 300 ms
+            {
+                maxweightstruct.ug = mass.ug;
+            }
         }
         //blink
     }
@@ -171,12 +195,31 @@ double val;
     gpio_put(20,0); // turn off amber led
     printf("final maxweight: %f\n", maxweightstruct.ug);
     //const mass_t maxweightstruct = maxweightstruct; // see if this is ok
+    mass_init(&totalwateravailable, mass_g,AvailableWaterinGrams); // init as micro grams & set as 500 FIELD FOR ADJUSTING TOTAL AVAILABLE WATER
+    totalwateravailable.ug = totalwateravailable.ug/1000000; // weird scaling thing again
+    //twoweights bothweights= {mass,maxweightstruct}; // pass mass values into weight struct
+    //xTaskCreate(BLedhandler,"BlueLEDTask",128,&bothweights,2,NULL); //thing to handle blue led
+}
+
+
+
+// blue led toggle for when target weight is hit
+void BLedhandler(mass_t mass, mass_t maxweightstruct)
+{
+    if (mass.ug >= maxweightstruct.ug)
+    {
+        gpio_put(21,1); // turn on blue led
+    }
+    else
+    {
+        gpio_put(21,0); // turn off blue led
+    }
+    vTaskDelay(pdMS_TO_TICKS(500)); //500ms
 }
 
 
 int main()
 {
- 
  bool waterstatus = false;
  stdio_init_all();
  gpio_init(25); //onboard led
@@ -259,7 +302,7 @@ mass_t mass;
 uint16_t result; // moved out of loop, delete later??
 gpio_init(21); //blue led on
 gpio_set_dir(21,GPIO_OUT);
-gpio_put(21,1);
+
 
 gpio_init(20); //init amber led
 gpio_set_dir(20,GPIO_OUT);
@@ -303,6 +346,7 @@ if(scale_weight(&sc, &mass, &opt)) {
     datain = mass.ug;
     printf("mass: %f\n",mass.ug);// for datalogging delete later
 
+    //try polling for if curreweight ==  maxweight to set blue light here.
 
     
     // weight thingy
@@ -313,10 +357,14 @@ if(scale_weight(&sc, &mass, &opt)) {
        printf("new maxweight : %f\n", maxweightstruct.ug);
       
     }
-    else if(mass.ug * 1.3 < maxweightstruct.ug && gpio_get(18) == false && mass.ug > 10 /* || pumptomaxweightflag true && wait if levelsense tripped timer is complete is true*/ ) // greater than 150 grams
+    else if(mass.ug * 1.3 < maxweightstruct.ug && gpio_get(18) == false && mass.ug > 15 /* || pumptomaxweightflag true && wait if levelsense tripped timer is complete is true*/ ) // greater than 150 grams
     {
       bool pumptomax = true;
-        while (pumptomax == true)
+       mass_t lowestweight;
+       lowestweight.ug = mass.ug; // used to get weight in water used (IF DOESNT WORK CHANGE INT TO MASS_T)
+       mass_t highestweight;
+
+        while (pumptomax == true && mass.ug > 15) 
         {
         gpio_put(14,1); // turns on motor
         gpio_put(20,1);
@@ -335,9 +383,22 @@ if(scale_weight(&sc, &mass, &opt)) {
         {
             pumptomax = false;
             gpio_put(14,0); // turn off pump
+            gpio_put(20,0); // turn off amber led
+            highestweight.ug = mass.ug; // used to get difference for water used CHANGE TO MASS_T IF DOESNT WORK
+                // do difference of water to get water used
+                waterused.ug = highestweight.ug - lowestweight.ug;
+                printf("water used : %f\n", waterused.ug);
+                totalwateravailable.ug = totalwateravailable.ug - waterused.ug;
+                printf("water left : %f\n", totalwateravailable.ug);
+                if (totalwateravailable.ug <= 0)
+                {
+                    gpio_put(21,1); // turn on blue led 
+                    nowater = true; // bool for empty tank
+                }
             break; // break out of while loop
         }
         }
+       
        //  sleep_ms(100);
     }
     else if(gpio_get(14)!=0) // sets pin low only if pin is high
