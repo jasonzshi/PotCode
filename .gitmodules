@@ -7,3 +7,6 @@
 [submodule "FreeRTOS/FreeRTOS-Kernel"]
 	path = FreeRTOS/FreeRTOS-Kernel
 	url = https://github.com/FreeRTOS/FreeRTOS-Kernel
+[submodule "no-OS-FatFS-SD-SPI-RPi-Pico"]
+	path = no-OS-FatFS-SD-SPI-RPi-Pico
+	url = https://github.com/carlk3/no-OS-FatFS-SD-SPI-RPi-Pico.git
