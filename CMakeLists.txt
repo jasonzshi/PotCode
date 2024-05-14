@@ -33,6 +33,7 @@ pico_sdk_init()
 add_executable(PotCode 
 PotCode.cpp
 edge-impulse-sdk/porting/raspberry/ei_classifier_porting.cpp
+
  )
 
 pico_set_program_name(PotCode "PotCode")
@@ -66,9 +67,12 @@ add_subdirectory(extern/pico-scale)
 # add FREERTOS subdirectory
 add_subdirectory(FreeRTOS)
 
+#add SD subdirectory
+add_subdirectory(no-OS-FatFS-SD-SPI-RPi-Pico/FatFs_SPI build)
+
 # Add the standard library to the build
 target_link_libraries(PotCode
-        pico_stdlib pico_sync pico_time hardware_gpio hardware_pwm hardware_adc hardware_pio freertos)
+        pico_stdlib pico_sync pico_time hardware_gpio hardware_pwm hardware_adc hardware_pio freertos FatFs_SPI)
 
 
 # Add the standard include files to the build
