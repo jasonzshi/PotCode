@@ -22,6 +22,10 @@
 #include "diskio.h" //???
 //#include "sd_spi.h"
 #include "f_util.h"
+// standard deviation calculation libs
+#include <deque>
+#include <numeric>
+#include <cmath>
 //ml libs
 
 //#include "model-parameters/model_metadata.h"
@@ -48,6 +52,49 @@ mass_t waterused; // mass_t to hold water used in grams
 mass_t totalwateravailable; // init function below in setup to define weight of water
 const double AvailableWaterinGrams = 700; // 700 grams available 
 bool nowater =false; // bool for if water reservoir is empty
+
+// Runout detection variables
+absolute_time_t last_time;
+const int TIMEOUT_MS = 90000; // 90 s timeout
+const int SAMPLE_SIZE = 30; // sample size taken right after plant is set down for standard deviation
+mass_t last_weight;
+//bool TankIsEmpty = false; 
+
+std::deque<float> weight_samples;
+float calculate_standard_deviation(const std::deque<float>& samples) { // standard deviation in weight
+  float mean = std::accumulate(samples.begin(), samples.end(), 0.0) / samples.size();
+  float sum_deviation = 0.0;
+  for (float sample : samples) {
+    sum_deviation += pow(sample - mean, 2);
+  }
+  return sqrt(sum_deviation / samples.size());
+}
+
+void PumpRunoutCheck(mass_t mass){
+    float deviation = calculate_standard_deviation(weight_samples);
+    printf("deviation: %f", deviation); // testing only delete after 
+    float difference = abs(last_weight.ug - mass.ug) / last_weight.ug;
+    printf("difference %f\n", difference);
+    if (abs(last_weight.ug - mass.ug) / last_weight.ug > deviation) 
+    {
+        
+        last_weight.ug = mass.ug;
+        last_time = get_absolute_time();
+        printf("time reset"); 
+       
+       
+    }
+    if (absolute_time_diff_us(last_time, get_absolute_time()) >= TIMEOUT_MS * 1000){
+
+        printf("here is where the pump stop should be but lets test it first");
+         gpio_put(20, 0);
+         gpio_put(21, 1);
+         gpio_put(14,0);
+         sleep_ms(30000); // 30 seconds
+         gpio_put(20, 1);
+         gpio_put(21, 0);
+    }
+}
 
 //scale init
 hx711_t hx;
@@ -185,7 +232,7 @@ double val;
         
         if (maxweightstruct.ug < mass.ug) // sets new weight if current weight is higher than maxweight
         { 
-            sleep_ms(420); // bounce delay for settling IMPORTANT !!!!
+            sleep_ms(1420); // bounce delay for settling IMPORTANT !!!!
                 if(scale_weight(&sc, &mass, &opt)) { // gets weight
                 double val;
                 mass_get_value(&mass, &val);
@@ -238,6 +285,9 @@ double val;
     //xTaskCreate(BLedhandler,"BlueLEDTask",128,&bothweights,2,NULL); //thing to handle blue led
 
    // xTaskCreate(drymotorstopper,"DryStop",configMINIMAL_STACK_SIZE, &params, 1, NULL);
+
+  
+
 }
 
 //haha
@@ -380,7 +430,7 @@ FATFS fs;
 FIL fil;
 FRESULT fr; 
 bool sd_ready = false;
-sleep_ms(5000);
+
 //initialize sd
 if(!sd_init_driver()){ 
     gpio_put(21,1); // turn on blue led // REMOVE LATER
@@ -409,6 +459,29 @@ if(!sd_init_driver()){
 
 initweightsetup(mass,opt); // call function for initial setup
 
+
+ //gonna grab standard deviation of pot here
+   for (int i=0; i < SAMPLE_SIZE; i++)
+   {
+     if(scale_weight(&sc, &mass, &opt)) { // gets weight
+                double val;
+                mass_get_value(&mass, &val);
+                char buff[MASS_TO_STRING_BUFF_SIZE];
+                mass.ug = mass.ug * -1; // invert values
+                mass_to_string(&mass, buff); 
+                //printf("%s\n", buff);
+                mass.ug = mass.ug /1000000; // wonky divider to make values match
+                datain = mass.ug;
+    }
+    weight_samples.push_back(mass.ug);
+    printf("deviation mass: %f\n",mass.ug);// for testing delete later
+    if (weight_samples.size() > SAMPLE_SIZE) {
+    weight_samples.pop_front();
+    }
+    sleep_ms(75);
+    printf("taking average#: %d\n", i); // testing only delete after 
+   }
+
 while(1)
 {
 //waterstatus =  gpio_get(18);
@@ -430,7 +503,7 @@ if(scale_weight(&sc, &mass, &opt)) {
     //
     // you can now:
  
-    // get the weight as a numeric value according to the mass_unit_t
+    // the weight as a numeric value according to the mass_unit_t
     double val;
     mass_get_value(&mass, &val);
     
@@ -451,17 +524,20 @@ if(scale_weight(&sc, &mass, &opt)) {
     // weight thingy
     if(mass.ug > maxweightstruct.ug && mass.ug - maxweightstruct.ug <= maxweightstruct.ug * .05 ) // current mass greater than max weight && add reasonable increase threshold so that anomalies can be ignored (5%)
     {
-        
-       maxweightstruct.ug = mass.ug;
-       printf("new maxweight : %f\n", maxweightstruct.ug);
+        //commenting this out to bypass changing maxweight post init, percentage is within load cell error so we need to make the percentage bigger
+       //maxweightstruct.ug = mass.ug;
+       //printf("new maxweight : %f\n", maxweightstruct.ug);
       
     }
-    else if(mass.ug * 1.3 < maxweightstruct.ug && gpio_get(18) != false  && mass.ug > 15 /* || pumptomaxweightflag true && wait if levelsense tripped timer is complete is true*/ ) // greater than 150 grams // changed pin 18 to != for npn sensor
+    else if(mass.ug * 1.23 < maxweightstruct.ug && gpio_get(18) != false  && mass.ug > 15 /* || pumptomaxweightflag true && wait if levelsense tripped timer is complete is true*/ ) // greater than 150 grams // changed pin 18 to != for npn sensor
     {
       bool pumptomax = true;
        mass_t lowestweight;
        lowestweight.ug = mass.ug; // used to get weight in water used (IF DOESNT WORK CHANGE INT TO MASS_T)
        mass_t highestweight;
+       // init runout detect timer
+       last_time = get_absolute_time();
+        
 
         while (pumptomax == true && mass.ug > 15) 
         {
@@ -480,6 +556,8 @@ if(scale_weight(&sc, &mass, &opt)) {
         }
         printf("mass : %f\n",mass.ug); // test delete later
         
+        PumpRunoutCheck(mass); // runout checker test and delete later
+
         if (sd_ready) // only save to sd if sd gets init
         {
         if (f_printf(&fil, "%f,\n",mass.ug) < 0) { // write to sd
@@ -492,6 +570,7 @@ if(scale_weight(&sc, &mass, &opt)) {
              }
         }
         }
+        sleep_ms(3000); // waits between taking values for runoutchecker to calculate deviation for water added
 
         if ( mass.ug >= maxweightstruct.ug /*add range of acceptable values*/)
         {
@@ -534,7 +613,7 @@ if(scale_weight(&sc, &mass, &opt)) {
  
 }
 
-sleep_ms(500); // 5 mins instead of 500 for datalogging
+sleep_ms(800); // 5 mins instead of 500 for datalogging
 /*
 //ml
  ei_impulse_result_t impulseresult;
